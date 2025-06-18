@@ -1,30 +1,41 @@
 let discountMatrix = [];
 let categories = {};
+let synonyms = {}; // Добавляем переменную для синонимов
 let defectsSuggestions = new Set(); // Store unique defect descriptions for autocomplete
 
-// Function to load data from JSON files
+// Функция для загрузки данных из JSON и текстовых файлов
 async function loadData() {
     try {
-        // Load categories from categories.json
+        // Загружаем категории из categories.json
         const categoriesResponse = await fetch('categories.json');
         if (!categoriesResponse.ok) {
             throw new Error(`HTTP error! status: ${categoriesResponse.status} from categories.json`);
         }
         categories = await categoriesResponse.json();
         populateCategorySelect(categories);
-        console.log("Categories loaded:", categories);
+        console.log("Категории загружены:", categories);
 
-        // Load rules from Rules.txt
+        // Загружаем правила из Rules.txt
         const rulesResponse = await fetch('Rules.txt');
         if (!rulesResponse.ok) {
             throw new Error(`HTTP error! status: ${rulesResponse.status} from Rules.txt`);
         }
         const rulesText = await rulesResponse.text();
-        discountMatrix = parseRulesText(rulesText); // Parse the CSV-like Rules.txt
+        discountMatrix = parseRulesText(rulesText); // Парсим CSV-подобный Rules.txt
 
-        // Populate defect suggestions for autocomplete
+        // Загружаем синонимы из synonyms.json
+        const synonymsResponse = await fetch('synonyms.json');
+        if (!synonymsResponse.ok) {
+            // Предупреждаем, но продолжаем без синонимов, если файл не найден
+            console.warn(`HTTP error! status: ${synonymsResponse.status} from synonyms.json. Search might be less accurate.`);
+        } else {
+            synonyms = await synonymsResponse.json();
+            console.log("Синонимы загружены:", synonyms);
+        }
+
+        // Заполняем предложения дефектов для автодополнения
         discountMatrix.forEach(row => {
-            // Collect all defect descriptions from 10%, 20%, 50%, 100%, and SLZ columns
+            // Собираем все описания дефектов из колонок 10%, 20%, 50%, 100% и СЛЦ
             ['Детальное описание дефекта (10% Упаковка)', 'Детальное описание дефекта (20%)',
              'Детальное описание дефекта (50%)', 'Детальное описание дефекта (100%)',
              'Диагностика в СЛЦ'].forEach(col => {
@@ -38,20 +49,21 @@ async function loadData() {
                 }
             });
         });
-        console.log("Discount Matrix loaded:", discountMatrix);
-        console.log("Defect suggestions:", defectsSuggestions);
+        console.log("Матрица скидок загружена:", discountMatrix);
+        console.log("Предложения дефектов для автодополнения:", defectsSuggestions);
+
     } catch (error) {
-        console.error("Error loading data:", error);
-        document.getElementById('resultsTable').innerHTML = `<p class="text-center text-red-500">Ошибка загрузки данных: ${error.message}. Убедитесь, что файлы categories.json и Rules.txt доступны.</p>`;
+        console.error("Ошибка загрузки данных:", error);
+        document.getElementById('resultsTable').innerHTML = `<p class="text-center text-red-500">Ошибка загрузки данных: ${error.message}. Убедитесь, что файлы categories.json, Rules.txt и synonyms.json доступны.</p>`;
     }
 }
 
-// Function to parse the Rules.txt content (CSV-like with quoted fields)
+// Функция для парсинга содержимого Rules.txt (CSV-подобный формат с полями в кавычках)
 function parseRulesText(text) {
     const lines = text.trim().split('\n');
     if (lines.length === 0) return [];
 
-    // Simple CSV parser for quoted fields
+    // Простой CSV-парсер для полей в кавычках
     const parseLine = (line) => {
         const result = [];
         let inQuote = false;
@@ -60,10 +72,10 @@ function parseRulesText(text) {
             const char = line[i];
             if (char === '"') {
                 inQuote = !inQuote;
-                // Handle escaped quotes within a field (e.g., "" becomes ")
+                // Обработка экранированных кавычек внутри поля (например, "" становится ")
                 if (inQuote && line[i + 1] === '"') {
                     currentField += '"';
-                    i++; // Skip next quote
+                    i++; // Пропускаем следующую кавычку
                 }
             } else if (char === ',' && !inQuote) {
                 result.push(currentField.trim());
@@ -88,17 +100,17 @@ function parseRulesText(text) {
             });
             data.push(rowObject);
         } else {
-            console.warn(`Skipping malformed row ${i + 1}: ${lines[i]}`);
+            console.warn(`Пропуск некорректной строки ${i + 1}: ${lines[i]}`);
         }
     }
     return data;
 }
 
 
-// Function to populate the category dropdown
+// Функция для заполнения выпадающего списка категорий
 function populateCategorySelect(categoriesData) {
     const selectElement = document.getElementById('categorySelect');
-    // Clear existing options, except the default one
+    // Очищаем существующие опции, кроме дефолтной
     selectElement.innerHTML = '<option value="">Выберите категорию</option>';
     for (const code in categoriesData) {
         const option = document.createElement('option');
@@ -108,7 +120,55 @@ function populateCategorySelect(categoriesData) {
     }
 }
 
-// Autocomplete function (reusable for product and defect)
+// Вспомогательная функция для получения всех связанных терминов (включая синонимы) для данного слова
+// Это вернет массив терминов, связанных с входным словом, включая само слово и его синонимы.
+function getExpandedTermsForWord(word, synonymsDict) {
+    const terms = new Set();
+    const lowerWord = word.toLowerCase();
+
+    // 1. Добавляем само оригинальное слово
+    terms.add(lowerWord);
+
+    // 2. Проверяем, является ли точное слово ключом в словаре синонимов
+    if (synonymsDict[lowerWord]) {
+        synonymsDict[lowerWord].forEach(syn => terms.add(syn.toLowerCase()));
+    }
+
+    // 3. Проверяем, является ли слово синонимом для какого-либо ключа (например, "разбитым" является синонимом "разбит")
+    // Это нужно для обработки флексий, если они указаны в синонимах как значения, а не как ключи.
+    for (const key in synonymsDict) {
+        if (synonymsDict[key].includes(lowerWord)) {
+            terms.add(key.toLowerCase()); // Добавляем базовый ключ
+            synonymsDict[key].forEach(syn => terms.add(syn.toLowerCase())); // Добавляем все синонимы для этого ключа
+        }
+    }
+
+    // 4. Ручное сопоставление общих флексий с их базовыми формами, которые являются ключами в synonyms.json
+    // Это простой способ обработки флексий без полной библиотеки морфологического анализа.
+    const commonInflectionMappings = {
+        "разбитым": "разбит",
+        "разбитого": "разбит",
+        "разбитая": "разбит",
+        "экраном": "экран",
+        "экрана": "экран",
+        "экрану": "экран",
+        "треснул": "трещина",
+        "треснувший": "трещина",
+        "сломанный": "не работает", // Пример: "сломанный" может вести к "не работает"
+        "поврежденный": "дефект" // Пример: "поврежденный" может вести к "дефект"
+    };
+
+    const mappedWord = commonInflectionMappings[lowerWord];
+    if (mappedWord && synonymsDict[mappedWord]) {
+        synonymsDict[mappedWord].forEach(syn => terms.add(syn.toLowerCase()));
+        terms.add(mappedWord); // Добавляем само сопоставленное базовое слово
+    }
+
+    return Array.from(terms);
+}
+
+
+// Функция автодополнения (переиспользуемая для поля дефекта)
 function autocomplete(inp, arr) {
     let currentFocus;
 
@@ -122,12 +182,12 @@ function autocomplete(inp, arr) {
         a.setAttribute("class", "autocomplete-items");
         this.parentNode.appendChild(a);
 
-        let count = 0; // To limit suggestions
-        for (i = 0; i < arr.length && count < 10; i++) { // Limit to 10 suggestions
-            // Convert to lowercase for case-insensitive matching
+        let count = 0; // Для ограничения предложений
+        for (i = 0; i < arr.length && count < 10; i++) { // Ограничиваем до 10 предложений
+            // Преобразуем в нижний регистр для нечувствительного к регистру сравнения
             if (arr[i].toLowerCase().includes(val.toLowerCase())) {
                 b = document.createElement("DIV");
-                // Bold matching part
+                // Выделяем совпадающую часть жирным шрифтом
                 const matchIndex = arr[i].toLowerCase().indexOf(val.toLowerCase());
                 const preMatch = arr[i].substr(0, matchIndex);
                 const match = arr[i].substr(matchIndex, val.length);
@@ -138,7 +198,7 @@ function autocomplete(inp, arr) {
                 b.addEventListener("click", function(e) {
                     inp.value = this.getElementsByTagName("input")[0].value;
                     closeAllLists();
-                    filterResults(); // Trigger filter on selection
+                    filterResults(); // Запускаем фильтрацию при выборе
                 });
                 a.appendChild(b);
                 count++;
@@ -149,10 +209,10 @@ function autocomplete(inp, arr) {
     inp.addEventListener("keydown", function(e) {
         let x = document.getElementById(this.id + "autocomplete-list");
         if (x) x = x.getElementsByTagName("div");
-        if (e.keyCode == 40) { // ARROW DOWN
+        if (e.keyCode == 40) { // СТРЕЛКА ВНИЗ
             currentFocus++;
             addActive(x);
-        } else if (e.keyCode == 38) { // ARROW UP
+        } else if (e.keyCode == 38) { // СТРЕЛКА ВВЕРХ
             currentFocus--;
             addActive(x);
         } else if (e.keyCode == 13) { // ENTER
@@ -160,7 +220,7 @@ function autocomplete(inp, arr) {
             if (currentFocus > -1) {
                 if (x) x[currentFocus].click();
             } else {
-                filterResults(); // Trigger filter on Enter even if no autocomplete selected
+                filterResults(); // Запускаем фильтрацию при нажатии Enter, даже если автодополнение не выбрано
             }
         }
     });
@@ -194,10 +254,10 @@ function autocomplete(inp, arr) {
 }
 
 
-// Function to filter and display results
+// Функция для фильтрации и отображения результатов
 function filterResults() {
     const selectedCategoryCode = document.getElementById('categorySelect').value;
-    const defectSearchTerm = document.getElementById('defectSearch').value.toLowerCase();
+    const defectSearchTerm = document.getElementById('defectSearch').value.toLowerCase().trim();
     const resultsTable = document.getElementById('resultsTable');
 
     if (!selectedCategoryCode && !defectSearchTerm) {
@@ -205,28 +265,46 @@ function filterResults() {
         return;
     }
 
+    // Генерируем расширенные поисковые термины из ввода пользователя
+    const userSearchWords = defectSearchTerm.split(' ').filter(word => word.length > 0);
+    const expandedUserSearchWords = new Set();
+    userSearchWords.forEach(word => {
+        getExpandedTermsForWord(word, synonyms).forEach(term => expandedUserSearchWords.add(term));
+    });
+    const finalSearchTerms = Array.from(expandedUserSearchWords);
+    console.log("Финальные поисковые термины:", finalSearchTerms);
+
     const filteredResults = discountMatrix.filter(row => {
-        // Find the full category name from the loaded categories object
         const categoryNameForComparison = categories[selectedCategoryCode];
         const categoryMatch = !selectedCategoryCode || (row['Категория товара'] === categoryNameForComparison);
 
-        const defectMatch = !defectSearchTerm ||
-            ['Детальное описание дефекта (10% Упаковка)', 'Детальное описание дефекта (20%)',
-             'Детальное описание дефекта (50%)', 'Детальное описание дефекта (100%)',
-             'Диагностика в СЛЦ'].some(col => {
+        let defectMatch = false;
+        if (!defectSearchTerm) { // Если нет термина дефекта, это совпадение по умолчанию, если категория совпадает
+            defectMatch = true;
+        } else {
+            const defectColumns = ['Детальное описание дефекта (10% Упаковка)', 'Детальное описание дефекта (20%)',
+                                   'Детальное описание дефекта (50%)', 'Детальное описание дефекта (100%)',
+                                   'Диагностика в СЛЦ'];
+
+            // Для каждой строки проверяем, содержит ли какая-либо из ее соответствующих колонок дефектов ЛЮБОЙ из расширенных поисковых терминов пользователя.
+            defectMatch = defectColumns.some(col => {
                 if (row[col]) {
-                    return row[col].toLowerCase().includes(defectSearchTerm);
+                    const ruleDefectDescriptions = row[col].toLowerCase().split(';').map(s => s.trim()).filter(s => s.length > 0);
+                    // Проверяем, содержит ли *любое* описание дефекта из правил *любой* из конечных поисковых терминов.
+                    return ruleDefectDescriptions.some(ruleDesc => {
+                        return finalSearchTerms.some(searchTerm => ruleDesc.includes(searchTerm));
+                    });
                 }
                 return false;
             });
-
+        }
         return categoryMatch && defectMatch;
     });
 
     displayResults(filteredResults);
 }
 
-// Function to display results in a table
+// Функция для отображения результатов в таблице
 function displayResults(results) {
     const resultsTable = document.getElementById('resultsTable');
     if (results.length === 0) {
@@ -273,22 +351,30 @@ function displayResults(results) {
     resultsTable.innerHTML = tableHtml;
 }
 
-// Event Listeners
+// Слушатели событий
 document.addEventListener('DOMContentLoaded', () => {
     loadData();
 
     const categorySelect = document.getElementById('categorySelect');
     const defectSearchInput = document.getElementById('defectSearch');
 
-    // Filter results when category changes
+    // Фильтрация результатов при изменении категории
     categorySelect.addEventListener('change', filterResults);
 
-    // Apply autocomplete to defect search input
-    autocomplete(defectSearchInput, Array.from(defectsSuggestions));
+    // Применяем автодополнение к полю ввода дефекта
+    // Важно: defectsSuggestions будет заполнен после загрузки Rules.txt в loadData()
+    // Поэтому запускаем autocomplete здесь, но он будет использовать данные, когда они загрузятся.
+    // Для более надежного автодополнения можно перенести его после того, как promise loadData() разрешится.
+    loadData().then(() => {
+        autocomplete(defectSearchInput, Array.from(defectsSuggestions));
+    }).catch(error => {
+        console.error("Ошибка при инициализации автодополнения:", error);
+    });
 
-    // Filter results on defect input (with a slight delay for better performance)
+
+    // Фильтрация результатов при вводе дефекта (с небольшой задержкой для лучшей производительности)
     let typingTimer;
-    const doneTypingInterval = 300; // milliseconds
+    const doneTypingInterval = 300; // миллисекунды
     defectSearchInput.addEventListener('keyup', () => {
         clearTimeout(typingTimer);
         typingTimer = setTimeout(filterResults, doneTypingInterval);
