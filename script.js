@@ -39,6 +39,10 @@ const productTypeToCategoryMapping = {
     "накладные наушники": "Мелко-габаритный товар и аксессуары"
 };
 
+// Список стоп-слов, которые нужно игнорировать при обработке запросов и предложений автодополнения
+const stopWords = new Set(["пришёл", "с", "и", "на", "в", "к", "от", "для", "по", "у", "не", "нет", "из", "был", "была", "было", "были", "потом", "затем", "то", "это", "что", "как", "так", "да", "но", "или", "либо"]);
+
+
 // Функция для загрузки данных из JSON и текстовых файлов
 async function loadData() {
     try {
@@ -76,17 +80,30 @@ async function loadData() {
              'Детальное описание дефекта (50%)', 'Детальное описание дефекта (100%)',
              'Диагностика в СЛЦ'].forEach(col => {
                 if (row[col]) {
-                    row[col].split(';').forEach(defect => {
-                        const trimmedDefect = defect.trim();
-                        if (trimmedDefect) {
-                            defectsSuggestions.add(trimmedDefect);
-                        }
+                    // Разделяем описание на отдельные дефекты по точке с запятой
+                    const rawDefects = row[col].split(';').map(d => d.trim()).filter(d => d.length > 0);
+                    rawDefects.forEach(defectPhrase => {
+                        // Добавляем саму фразу для автодополнения (полезно для длинных описаний)
+                        defectsSuggestions.add(defectPhrase);
+
+                        // Разделяем фразу на слова (игнорируя стоп-слова)
+                        const wordsInPhrase = defectPhrase.split(' ').filter(word => word.length > 0 && !stopWords.has(word.toLowerCase()));
+                        wordsInPhrase.forEach(word => {
+                            // Для каждого значимого слова получаем его расширенные термины (синонимы/флексии)
+                            getExpandedTermsForWord(word, synonyms).forEach(term => {
+                                defectsSuggestions.add(term); // Добавляем каждый расширенный термин в предложения
+                            });
+                        });
                     });
                 }
             });
+            // Также добавляем категории в предложения для автодополнения, если нужно
+            if (row['Категория товара']) {
+                defectsSuggestions.add(row['Категория товара']);
+            }
         });
         console.log("Матрица скидок загружена:", discountMatrix);
-        console.log("Предложения дефектов для автодополнения:", defectsSuggestions);
+        console.log("Предложения дефектов для автодополнения (расширенные):", defectsSuggestions);
 
     } catch (error) {
         console.error("Ошибка загрузки данных:", error);
@@ -170,10 +187,8 @@ function getExpandedTermsForWord(word, synonymsDict) {
         synonymsDict[lowerWord].forEach(syn => terms.add(syn.toLowerCase()));
     }
 
-    // 3. Проверяем, является ли слово синонимом для какого-либо ключа (например, "разбитым" является синонимом "разбит")
-    // Это нужно для обработки флексий, если они указаны в синонимах как значения, а не как ключи.
+    // 3. Проверяем, является ли слово синонимом для какого-либо ключа
     for (const key in synonymsDict) {
-        // Убедимся, что synonymsDict[key] является массивом
         if (Array.isArray(synonymsDict[key]) && synonymsDict[key].includes(lowerWord)) {
             terms.add(key.toLowerCase()); // Добавляем базовый ключ
             synonymsDict[key].forEach(syn => terms.add(syn.toLowerCase())); // Добавляем все синонимы для этого ключа
@@ -181,7 +196,6 @@ function getExpandedTermsForWord(word, synonymsDict) {
     }
 
     // 4. Ручное сопоставление общих флексий с их базовыми формами, которые являются ключами в synonyms.json
-    // Это простой способ обработки флексий без полной библиотеки морфологического анализа.
     const commonInflectionMappings = {
         "разбитым": "разбит",
         "разбитого": "разбит",
@@ -225,26 +239,28 @@ function autocomplete(inp, arr) {
         this.parentNode.appendChild(a);
 
         let count = 0; // Для ограничения предложений
-        for (i = 0; i < arr.length && count < 10; i++) { // Ограничиваем до 10 предложений
-            // Преобразуем в нижний регистр для нечувствительного к регистру сравнения
-            if (arr[i].toLowerCase().includes(val.toLowerCase())) {
-                b = document.createElement("DIV");
-                // Выделяем совпадающую часть жирным шрифтом
-                const matchIndex = arr[i].toLowerCase().indexOf(val.toLowerCase());
-                const preMatch = arr[i].substr(0, matchIndex);
-                const match = arr[i].substr(matchIndex, val.length);
-                const postMatch = arr[i].substr(matchIndex + val.length);
+        const lowerVal = val.toLowerCase();
+        // Фильтруем массив arr, чтобы получить только те элементы, которые содержат val
+        const filteredArr = arr.filter(item => item.toLowerCase().includes(lowerVal));
+        
+        for (i = 0; i < filteredArr.length && count < 10; i++) { // Ограничиваем до 10 предложений
+            const item = filteredArr[i];
+            b = document.createElement("DIV");
+            // Выделяем совпадающую часть жирным шрифтом
+            const matchIndex = item.toLowerCase().indexOf(lowerVal);
+            const preMatch = item.substr(0, matchIndex);
+            const match = item.substr(matchIndex, lowerVal.length);
+            const postMatch = item.substr(matchIndex + lowerVal.length);
 
-                b.innerHTML = preMatch + "<strong>" + match + "</strong>" + postMatch;
-                b.innerHTML += "<input type='hidden' value='" + arr[i] + "'>";
-                b.addEventListener("click", function(e) {
-                    inp.value = this.getElementsByTagName("input")[0].value;
-                    closeAllLists();
-                    filterResults(); // Запускаем фильтрацию при выборе
-                });
-                a.appendChild(b);
-                count++;
-            }
+            b.innerHTML = preMatch + "<strong>" + match + "</strong>" + postMatch;
+            b.innerHTML += "<input type='hidden' value='" + item + "'>";
+            b.addEventListener("click", function(e) {
+                inp.value = this.getElementsByTagName("input")[0].value;
+                closeAllLists();
+                filterResults(); // Запускаем фильтрацию при выборе
+            });
+            a.appendChild(b);
+            count++;
         }
     });
 
@@ -307,9 +323,6 @@ function filterResults() {
         return;
     }
 
-    // Список стоп-слов, которые нужно игнорировать
-    const stopWords = new Set(["пришёл", "с", "и", "на", "в", "к", "от", "для", "по", "у", "не", "нет", "из", "был", "была", "было", "были"]);
-
     // Генерируем расширенные поисковые термины из ввода пользователя, игнорируя стоп-слова
     const userSearchWords = defectSearchTerm.split(' ').filter(word => word.length > 0 && !stopWords.has(word));
     
@@ -322,7 +335,7 @@ function filterResults() {
 
     const filteredResults = discountMatrix.filter(row => {
         const categoryNameForComparison = categories[selectedCategoryCode];
-        const categoryMatch = !selectedCategoryCode || (row['Категория товара'] === categoryNameForComparison);
+        const categoryMatch = !selectedCategoryCode || (row['Категотория товара'] === categoryNameForComparison);
 
         let defectMatch = false;
         if (!defectSearchTerm) { // Если нет термина дефекта, это совпадение по умолчанию, если категория совпадает
@@ -348,6 +361,7 @@ function filterResults() {
                 }) || termsToMatch.some(term => {
                     // Проверяем, если термин соответствует типу продукта, который затем сопоставляется с категорией правила
                     const mappedCategory = productTypeToCategoryMapping[term];
+                    // Если mappedCategory существует и совпадает с категорией текущей строки (или если категория не выбрана)
                     return mappedCategory && row['Категория товара'].toLowerCase() === mappedCategory.toLowerCase();
                 });
                 
