@@ -3,6 +3,42 @@ let categories = {};
 let synonyms = {}; // Добавляем переменную для синонимов
 let defectsSuggestions = new Set(); // Store unique defect descriptions for autocomplete
 
+// Mapping of common product types to their corresponding category display names from categories.json
+// Это позволяет связать введенные пользователем названия товаров с их общими категориями.
+const productTypeToCategoryMapping = {
+    "телефон": "Мелко-габаритный товар и аксессуары",
+    "смартфон": "Мелко-габаритный товар и аксессуары",
+    "мобильник": "Мелко-габаритный товар и аксессуары",
+    "сотовый": "Мелко-габаритный товар и аксессуары",
+    "ноутбук": "Крупно- и средне-габаритный товар",
+    "лэптоп": "Крупно- и средне-габаритный товар",
+    "нетбук": "Крупно- и средне-габаритный товар",
+    "видеокарта": "Комплектующие для ПК",
+    "процессор": "Комплектующие для ПК",
+    "материнская плата": "Комплектующие для ПК",
+    "оперативная память": "Комплектующие для ПК",
+    "системный блок": "Комплектующие для ПК",
+    "компьютер": "Комплектующие для ПК",
+    "тв": "Крупно- и средне-габаритный товар",
+    "телевизор": "Крупно- и средне-габаритный товар",
+    "монитор": "Комплектующие для ПК", // Мониторы могут быть и как Комплектующие для ПК, и как Крупно- и средне-габаритный товар. Уточнить, если нужна более строгая классификация.
+    "пылесос": "Крупно- и средне-габаритный товар",
+    "стиральная машина": "Крупно- и средне-габаритный товар",
+    "холодильник": "Крупно- и средне-габаритный товар",
+    "кофемашина": "Крупно- и средне-габаритный товар",
+    "микроволновка": "Крупно- и средне-габаритный товар",
+    "духовой шкаф": "Крупно- и средне-габаритный товар",
+    "плита": "Крупно- и средне-габаритный товар",
+    "варочная панель": "Крупно- и средне-габаритный товар",
+    "электрочайник": "Мелко-габаритный товар и аксессуары",
+    "посудомоечная машинка": "Крупно- и средне-габаритный товар",
+    "бритва": "Мелко-габаритный товар и аксессуары",
+    "машинка для стрижки": "Мелко-габаритный товар и аксессуары",
+    "эпилятор": "Мелко-габаритный товар и аксессуары",
+    "зубная щётка": "Мелко-габаритный товар и аксессуары",
+    "накладные наушники": "Мелко-габаритный товар и аксессуары"
+};
+
 // Функция для загрузки данных из JSON и текстовых файлов
 async function loadData() {
     try {
@@ -75,7 +111,7 @@ function parseRulesText(text) {
                 // Обработка экранированных кавычек внутри поля (например, "" становится ")
                 if (inQuote && line[i + 1] === '"') {
                     currentField += '"';
-                    i++; // Пропускаем следующую кавышку
+                    i++; // Пропускаем следующую кавычку
                 }
             } else if (char === ',' && !inQuote) {
                 result.push(currentField.trim());
@@ -137,6 +173,7 @@ function getExpandedTermsForWord(word, synonymsDict) {
     // 3. Проверяем, является ли слово синонимом для какого-либо ключа (например, "разбитым" является синонимом "разбит")
     // Это нужно для обработки флексий, если они указаны в синонимах как значения, а не как ключи.
     for (const key in synonymsDict) {
+        // Убедимся, что synonymsDict[key] является массивом
         if (Array.isArray(synonymsDict[key]) && synonymsDict[key].includes(lowerWord)) {
             terms.add(key.toLowerCase()); // Добавляем базовый ключ
             synonymsDict[key].forEach(syn => terms.add(syn.toLowerCase())); // Добавляем все синонимы для этого ключа
@@ -296,13 +333,11 @@ function filterResults() {
                                    'Диагностика в СЛЦ'];
 
             // Проверяем, что каждое из *отфильтрованных* слов запроса (или его синоним) найдено в правилах
-            // Теперь проверяем не только колонки дефектов, но и "Категория товара"
             const allRelevantWordsMatched = userSearchWords.every(searchWord => {
                 const termsToMatch = getExpandedTermsForWord(searchWord, synonyms);
                 
-                // Проверяем, содержится ли любой из терминов для searchWord в любой колонке дефектов ИЛИ в категории товара
-                // (row['Категория товара'] && termsToMatch.some(term => row['Категория товара'].toLowerCase().includes(term)))
-                const foundInDefectColumn = defectColumns.some(col => {
+                // Проверяем, содержится ли любой из терминов для searchWord в любой колонке дефектов ИЛИ в категории товара (по явному сопоставлению)
+                const foundInDefectColumnOrCategory = defectColumns.some(col => {
                     if (row[col]) {
                         const ruleDefectDescriptions = row[col].toLowerCase().split(';').map(s => s.trim()).filter(s => s.length > 0);
                         return ruleDefectDescriptions.some(ruleDesc => {
@@ -310,13 +345,13 @@ function filterResults() {
                         });
                     }
                     return false;
+                }) || termsToMatch.some(term => {
+                    // Проверяем, если термин соответствует типу продукта, который затем сопоставляется с категорией правила
+                    const mappedCategory = productTypeToCategoryMapping[term];
+                    return mappedCategory && row['Категория товара'].toLowerCase() === mappedCategory.toLowerCase();
                 });
-
-                // Если категория товара выбрана, то она должна соответствовать и по запросу.
-                // Если категория не выбрана, или выбрана, и ее название совпадает с одним из терминов, то это тоже совпадение.
-                const foundInCategory = (row['Категория товара'] && termsToMatch.some(term => row['Категория товара'].toLowerCase().includes(term)));
                 
-                return foundInDefectColumn || foundInCategory;
+                return foundInDefectColumnOrCategory;
             });
             defectMatch = allRelevantWordsMatched;
         }
@@ -375,30 +410,24 @@ function displayResults(results) {
 
 // Слушатели событий
 document.addEventListener('DOMContentLoaded', () => {
-    loadData();
+    loadData().then(() => { // Убедимся, что данные загружены перед инициализацией автодополнения
+        const categorySelect = document.getElementById('categorySelect');
+        const defectSearchInput = document.getElementById('defectSearch');
 
-    const categorySelect = document.getElementById('categorySelect');
-    const defectSearchInput = document.getElementById('defectSearch');
+        // Фильтрация результатов при изменении категории
+        categorySelect.addEventListener('change', filterResults);
 
-    // Фильтрация результатов при изменении категории
-    categorySelect.addEventListener('change', filterResults);
-
-    // Применяем автодополнение к полю ввода дефекта
-    // Важно: defectsSuggestions будет заполнен после загрузки Rules.txt в loadData()
-    // Поэтому запускаем autocomplete здесь, но он будет использовать данные, когда они загрузятся.
-    // Для более надежного автодополнения можно перенести его после того, как promise loadData() разрешится.
-    loadData().then(() => {
+        // Применяем автодополнение к полю ввода дефекта
         autocomplete(defectSearchInput, Array.from(defectsSuggestions));
+
+        // Фильтрация результатов при вводе дефекта (с небольшой задержкой для лучшей производительности)
+        let typingTimer;
+        const doneTypingInterval = 300; // миллисекунды
+        defectSearchInput.addEventListener('keyup', () => {
+            clearTimeout(typingTimer);
+            typingTimer = setTimeout(filterResults, doneTypingInterval);
+        });
     }).catch(error => {
-        console.error("Ошибка при инициализации автодополнения:", error);
-    });
-
-
-    // Фильтрация результатов при вводе дефекта (с небольшой задержкой для лучшей производительности)
-    let typingTimer;
-    const doneTypingInterval = 300; // миллисекунды
-    defectSearchInput.addEventListener('keyup', () => {
-        clearTimeout(typingTimer);
-        typingTimer = setTimeout(filterResults, doneTypingInterval);
+        console.error("Ошибка при инициализации приложения:", error);
     });
 });
