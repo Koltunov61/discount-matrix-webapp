@@ -1,0 +1,93 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Матрица уценки</title>
+    <link href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css" rel="stylesheet">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: #f3f4f6; /* Light gray background */
+        }
+        .container {
+            max-width: 900px;
+        }
+        input, select {
+            border-radius: 0.5rem; /* Rounded corners */
+            padding: 0.75rem 1rem; /* Padding */
+            border: 1px solid #d1d5db; /* Light gray border */
+            width: 100%;
+            box-sizing: border-box;
+        }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+        }
+        th, td {
+            padding: 0.75rem 1rem;
+            text-align: left;
+            border-bottom: 1px solid #e5e7eb; /* Light gray bottom border */
+        }
+        th {
+            background-color: #e0e7ff; /* Light blue header background */
+            font-weight: 600;
+            color: #374151; /* Dark gray text */
+        }
+        tr:nth-child(even) {
+            background-color: #f9fafb; /* Slightly darker background for even rows */
+        }
+        .autocomplete-items {
+            border: 1px solid #d1d5db;
+            border-bottom: none;
+            border-top: none;
+            z-index: 99;
+            /*position the autocomplete items to be the same width as the container:*/
+            position: absolute;
+            width: calc(100% - 2rem); /* Adjusted for padding */
+        }
+        .autocomplete-items div {
+            padding: 10px;
+            cursor: pointer;
+            background-color: #fff;
+            border-bottom: 1px solid #d1d5db;
+        }
+        .autocomplete-items div:hover {
+            /*when hovering an item:*/
+            background-color: #e0e7ff;
+        }
+        .autocomplete-active {
+            /*when navigating through the items using the arrow keys:*/
+            background-color: #e0e7ff !important;
+            color: #ffffff;
+        }
+    </style>
+</head>
+<body class="p-4">
+    <div class="container mx-auto bg-white p-6 rounded-lg shadow-md">
+        <h1 class="text-3xl font-bold text-center text-indigo-700 mb-6">Матрица уценки товара</h1>
+
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
+            <div class="relative">
+                <label for="categorySelect" class="block text-gray-700 text-sm font-medium mb-1">Категория товара:</label>
+                <select id="categorySelect" class="block appearance-none bg-white border border-gray-300 text-gray-700 py-3 px-4 pr-8 rounded leading-tight focus:outline-none focus:bg-white focus:border-indigo-500">
+                    <option value="">Выберите категорию</option>
+                </select>
+            </div>
+            <div class="relative">
+                <label for="defectSearch" class="block text-gray-700 text-sm font-medium mb-1">Описание дефекта:</label>
+                <input type="text" id="defectSearch" placeholder="Например: царапины, не включается" class="focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500">
+            </div>
+        </div>
+
+        <div id="resultsTable" class="overflow-x-auto">
+            <p class="text-center text-gray-500">Введите описание дефекта для поиска.</p>
+        </div>
+    </div>
+
+    <script src="script.js"></script>
+</body>
+</html>
