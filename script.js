@@ -97,7 +97,7 @@ async function loadData() {
                     });
                 }
             });
-            // Также добавляем категории в предложения для автодополнения, если нужно
+            // Также добавляем категории в предложения для автодополнения
             if (row['Категория товара']) {
                 defectsSuggestions.add(row['Категория товара']);
             }
@@ -241,8 +241,21 @@ function autocomplete(inp, arr) {
         let count = 0; // Для ограничения предложений
         const lowerVal = val.toLowerCase();
         // Фильтруем массив arr, чтобы получить только те элементы, которые содержат val
-        const filteredArr = arr.filter(item => item.toLowerCase().includes(lowerVal));
+        // Улучшенная фильтрация для автодополнения:
+        const filteredArr = arr.filter(item => {
+            // Разбиваем элемент на слова и проверяем, содержит ли какое-либо слово введенное значение
+            return item.toLowerCase().split(' ').some(word => word.startsWith(lowerVal) || word.includes(lowerVal));
+        });
         
+        // Сортируем предложения, чтобы те, что начинаются с lowerVal, были выше
+        filteredArr.sort((a, b) => {
+            const aLower = a.toLowerCase();
+            const bLower = b.toLowerCase();
+            if (aLower.startsWith(lowerVal) && !bLower.startsWith(lowerVal)) return -1;
+            if (!aLower.startsWith(lowerVal) && bLower.startsWith(lowerVal)) return 1;
+            return 0;
+        });
+
         for (i = 0; i < filteredArr.length && count < 10; i++) { // Ограничиваем до 10 предложений
             const item = filteredArr[i];
             b = document.createElement("DIV");
@@ -335,7 +348,8 @@ function filterResults() {
 
     const filteredResults = discountMatrix.filter(row => {
         const categoryNameForComparison = categories[selectedCategoryCode];
-        const categoryMatch = !selectedCategoryCode || (row['Категотория товара'] === categoryNameForComparison);
+        // Проверяем, соответствует ли выбранная категория (если выбрана) категории в строке данных
+        const categoryMatch = !selectedCategoryCode || (row['Категория товара'] === categoryNameForComparison);
 
         let defectMatch = false;
         if (!defectSearchTerm) { // Если нет термина дефекта, это совпадение по умолчанию, если категория совпадает
@@ -361,7 +375,7 @@ function filterResults() {
                 }) || termsToMatch.some(term => {
                     // Проверяем, если термин соответствует типу продукта, который затем сопоставляется с категорией правила
                     const mappedCategory = productTypeToCategoryMapping[term];
-                    // Если mappedCategory существует и совпадает с категорией текущей строки (или если категория не выбрана)
+                    // Если mappedCategory существует и совпадает с категорией текущей строки
                     return mappedCategory && row['Категория товара'].toLowerCase() === mappedCategory.toLowerCase();
                 });
                 
