@@ -75,7 +75,7 @@ function parseRulesText(text) {
                 // Обработка экранированных кавычек внутри поля (например, "" становится ")
                 if (inQuote && line[i + 1] === '"') {
                     currentField += '"';
-                    i++; // Пропускаем следующую кавычку
+                    i++; // Пропускаем следующую кавышку
                 }
             } else if (char === ',' && !inQuote) {
                 result.push(currentField.trim());
@@ -296,18 +296,27 @@ function filterResults() {
                                    'Диагностика в СЛЦ'];
 
             // Проверяем, что каждое из *отфильтрованных* слов запроса (или его синоним) найдено в правилах
+            // Теперь проверяем не только колонки дефектов, но и "Категория товара"
             const allRelevantWordsMatched = userSearchWords.every(searchWord => {
                 const termsToMatch = getExpandedTermsForWord(searchWord, synonyms);
-                return defectColumns.some(col => {
+                
+                // Проверяем, содержится ли любой из терминов для searchWord в любой колонке дефектов ИЛИ в категории товара
+                // (row['Категория товара'] && termsToMatch.some(term => row['Категория товара'].toLowerCase().includes(term)))
+                const foundInDefectColumn = defectColumns.some(col => {
                     if (row[col]) {
                         const ruleDefectDescriptions = row[col].toLowerCase().split(';').map(s => s.trim()).filter(s => s.length > 0);
                         return ruleDefectDescriptions.some(ruleDesc => {
-                            // Проверяем, содержит ли описание дефекта из правил *любой* из терминов для текущего слова запроса
                             return termsToMatch.some(term => ruleDesc.includes(term));
                         });
                     }
                     return false;
                 });
+
+                // Если категория товара выбрана, то она должна соответствовать и по запросу.
+                // Если категория не выбрана, или выбрана, и ее название совпадает с одним из терминов, то это тоже совпадение.
+                const foundInCategory = (row['Категория товара'] && termsToMatch.some(term => row['Категория товара'].toLowerCase().includes(term)));
+                
+                return foundInDefectColumn || foundInCategory;
             });
             defectMatch = allRelevantWordsMatched;
         }
